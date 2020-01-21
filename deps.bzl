@@ -94,12 +94,35 @@ def gazelle_dependencies(
         version = "v0.0.0-20190911185100-cd5d95a43a6e",
     )
 
+    #
+    # Override the default version of x/sys shipped with bazel-gazelle.  This is
+    # necessary for other go_repositories such as gopsutil that reference
+    # symbols not found in this +1year old version.
+    #
+    # Not sure why I could not just override this in my WORKSPACE, but then I
+    # got a different cascade of errors relating to missing x/sys/unix
+    # dependencies.
+    #
     _maybe(
+        # Branch: master
+        # Commit: 655fe14d7479994387fe12003042545d0c2859a5
+        # Date: 2020-01-20 12:36:15 +0000 UTC
+        # URL: https://github.com/golang/sys/commit/655fe14d7479994387fe12003042545d0c2859a5
+        # 
+        # unix: test (*FdSet).Clear in TestFdSet
+        # 
+        # Follow-up for CL 205397 so all *FdSet functionality is tested.
+        # 
+        # Change-Id: Ieb5dce6ad020ce1252cae7f3fe96ba6bf0069f5e
+        # Reviewed-on: https://go-review.googlesource.com/c/sys/+/215241
+        # Run-TryBot: Tobias Klauser <tobias.klauser@gmail.com>
+        # TryBot-Result: Gobot Gobot <gobot@golang.org>
+        # Reviewed-by: Brad Fitzpatrick <bradfitz@golang.org>
+        # Size: 1536709 (1.5 MB)
         go_repository,
         name = "org_golang_x_sys",
         importpath = "golang.org/x/sys",
-        sum = "h1:Lk4tbZFnlyPgV+sLgTw5yGfzrlOn9kx4vSombi2FFlY=",
-        version = "v0.0.0-20190122071731-054c452bb702",
+        commit = "655fe14d7479994387fe12003042545d0c2859a5",
     )
 
     _maybe(
