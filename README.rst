@@ -518,7 +518,7 @@ The following flags are accepted:
 | :flag:`-proto_group group`                                        | :value:`""`                            |
 +-------------------------------------------------------------------+----------------------------------------+
 | Determines the proto option Gazelle uses to group .proto files into rules                                  |
-| when in ``package`` mode. See details in `Directives`_ below.                                              |
+| when in ``package`` or ``file`` mode. See details in `Directives`_ below.                                              |
 +-------------------------------------------------------------------+----------------------------------------+
 | :flag:`-proto_import_prefix path`                                 |                                        |
 +-------------------------------------------------------------------+----------------------------------------+
@@ -843,7 +843,17 @@ The following directives are recognized:
 +---------------------------------------------------+----------------------------------------+
 | :direc:`# gazelle:proto_group option`             | :value:`""`                            |
 +---------------------------------------------------+----------------------------------------+
-| *This directive is only effective in* ``package`` *mode (see above).*                      |
+| *This directive is only effective in* ``package`` and ``file`` *modes (see above).*        |
+| The semantics of this option are dependent on the mode.                                    |
+|                                                                                            |
+| file mode:                                                                                 |
+|                                                                                            |
+| Specifies the names of proto files in the same package that should be included in the srcs |
+|  list of the generated rule.  For example, the combination of 'gazelle:proto file' and     |
+| 'gazelle:proto_group package.proto' will generate a ``proto_library`` rule for each proto  |
+| file 'x.proto' whose srcs list is ``["x.proto", "package.proto"]``.                        |
+|                                                                                            |
+| package mode:                                                                              |
 |                                                                                            |
 | Specifies an option that Gazelle can use to group .proto files into rules.                 |
 | For example, when set to ``go_package``, .proto files with the same                        |

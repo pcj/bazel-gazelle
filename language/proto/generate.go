@@ -118,8 +118,11 @@ func RuleName(names ...string) string {
 // a proto_library rule for.
 func buildPackages(pc *ProtoConfig, dir, rel string, protoFiles, genFiles []string) []*Package {
 	packageMap := make(map[string]*Package)
+	infoMap := make(map[string]FileInfo)
+
 	for _, name := range protoFiles {
 		info := protoFileInfo(dir, name)
+		infoMap[name] = info
 		key := info.PackageName
 
 		if pc.Mode == FileMode {
@@ -139,6 +142,22 @@ func buildPackages(pc *ProtoConfig, dir, rel string, protoFiles, genFiles []stri
 		packageMap[key].addFile(info)
 		if key != info.PackageName {
 			packageMap[key].RuleName = key
+		}
+	}
+
+	if pc.Mode == FileMode && pc.groupOption != "" {
+		for _, name := range strings.Fields(pc.groupOption) {
+			wantFile, ok := infoMap[name]
+			if !ok {
+				log.Printf("error in package %s: requested 'gazelle:proto file' and 'gazelle:proto_group %s', but the proto file %q was not found in this package", rel, pc.groupOption, name)
+				continue
+			}
+			for _, pkg := range packageMap {
+				if _, ok := pkg.Files[name]; ok {
+					continue
+				}
+				pkg.addFile(wantFile)
+			}
 		}
 	}
 
