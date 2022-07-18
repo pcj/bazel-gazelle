@@ -447,3 +447,138 @@ func TestCheckFile(t *testing.T) {
 		t.Errorf("unexpected error: %v", err)
 	}
 }
+
+// TestRuleExprAPI demonstrates the exprs that are accessible via the Rule API.
+// It uses the ShouldKeep utility for convenience but is not necessarily a test
+// of the ShouldKeep API per se.
+func TestRuleExprAPI(t *testing.T) {
+	for desc, tc := range map[string]struct {
+		desc, src  string
+		shouldKeep func(t *testing.T, r *Rule) bool
+		want       bool
+	}{
+		"rule comments": {
+			src: `
+# keep
+rule(name = "test")
+`,
+			shouldKeep: func(t *testing.T, r *Rule) bool {
+				t.Log("rule should keep?:", r.Comments())
+				return r.ShouldKeep()
+			},
+			want: true,
+		},
+		"list item suffix": {
+			src: `
+rule(
+    name = "test",
+    deps = [
+        "a",  # keep
+    ],
+)
+`,
+			shouldKeep: func(t *testing.T, r *Rule) bool {
+				list, ok := r.Attr("deps").(*bzl.ListExpr)
+				if !ok {
+					t.Fatalf("want ListExpr, got %T", list)
+				}
+				str, ok := list.List[0].(*bzl.StringExpr)
+				if !ok {
+					t.Fatalf("want StringExpr, got %T", str)
+				}
+				return ShouldKeep(str)
+			},
+			want: true,
+		},
+		"list item before": {
+			src: `
+rule(
+    name = "test",
+    deps = [
+		# keep
+        "a",
+    ],
+)
+`,
+			shouldKeep: func(t *testing.T, r *Rule) bool {
+				list, ok := r.Attr("deps").(*bzl.ListExpr)
+				if !ok {
+					t.Fatalf("want ListExpr, got %T", list)
+				}
+				str, ok := list.List[0].(*bzl.StringExpr)
+				if !ok {
+					t.Fatalf("want StringExpr, got %T", str)
+				}
+				return ShouldKeep(str)
+			},
+			want: true,
+		},
+		"list before": {
+			src: `
+rule(
+    name = "test",
+    deps = 
+		# keep
+		[
+			"a",  
+		],
+)
+`,
+			shouldKeep: func(t *testing.T, r *Rule) bool {
+				list, ok := r.Attr("deps").(*bzl.ListExpr)
+				if !ok {
+					t.Fatalf("want ListExpr, got %T", list)
+				}
+				return ShouldKeep(list)
+			},
+			want: true,
+		},
+		"list suffix - not possible?": {
+			src: `
+rule(
+    name = "test",
+	deps = ["a"] # keep
+)
+`,
+			shouldKeep: func(t *testing.T, r *Rule) bool {
+				list, ok := r.Attr("deps").(*bzl.ListExpr)
+				if !ok {
+					t.Fatalf("want ListExpr, got %T", list)
+				}
+				return ShouldKeep(list)
+			},
+			want: false,
+		},
+		"assign expr": {
+			src: `
+rule(
+    name = "test",
+	# keep
+	deps = ["a"]
+)
+`,
+			shouldKeep: func(t *testing.T, r *Rule) bool {
+				assign := r.AttrAssignment("deps")
+				return ShouldKeep(assign)
+			},
+			want: true,
+		},
+	} {
+		t.Run(desc, func(t *testing.T) {
+			file, err := LoadData("", "", []byte(tc.src))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(file.Rules) != 1 {
+				t.Fatal("test case should decare one rule")
+			}
+			var got bool
+			if tc.shouldKeep != nil {
+				got = tc.shouldKeep(t, file.Rules[0])
+			}
+			if got != tc.want {
+				t.Errorf("got %v; want %v", got, tc.want)
+			}
+		})
+	}
+}
