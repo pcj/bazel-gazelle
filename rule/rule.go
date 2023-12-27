@@ -30,6 +30,7 @@ import (
 	"io/ioutil"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"sort"
 	"strings"
 	"sync"
@@ -37,6 +38,8 @@ import (
 	bzl "github.com/bazelbuild/buildtools/build"
 	bt "github.com/bazelbuild/buildtools/tables"
 )
+
+var AnnounceRuleChanges bool
 
 // File provides editing functionality for a build file. You can create a
 // new file with EmptyFile or load an existing file with LoadFile. After
@@ -894,7 +897,6 @@ func (r *Rule) DelAttr(key string) {
 // by ExprFromValue.
 func (r *Rule) SetAttr(key string, value interface{}) {
 	r.mutex.Lock()
-	defer r.mutex.Unlock()
 
 	rhs := ExprFromValue(value)
 	if attr, ok := r.attrs[key]; ok {
@@ -906,7 +908,15 @@ func (r *Rule) SetAttr(key string, value interface{}) {
 			Op:  "=",
 		}
 	}
+	if AnnounceRuleChanges {
+		fmt.Printf("rule changed: %s/%s.%s", r.kind, r.Name(), key)
+		if !AnnounceRuleChanges {
+			debug.PrintStack()
+		}
+	}
 	r.updated = true
+
+	r.mutex.Unlock()
 }
 
 // PrivateAttrKeys returns a sorted list of private attribute names.
