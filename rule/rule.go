@@ -28,6 +28,7 @@ package rule
 import (
 	"fmt"
 	"io/ioutil"
+	"log"
 	"os"
 	"path/filepath"
 	"runtime/debug"
@@ -896,6 +897,8 @@ func (r *Rule) DelAttr(key string) {
 // SetAttr adds or replaces the named attribute with an expression produced
 // by ExprFromValue.
 func (r *Rule) SetAttr(key string, value interface{}) {
+	name := r.Name()
+
 	r.mutex.Lock()
 
 	rhs := ExprFromValue(value)
@@ -909,10 +912,8 @@ func (r *Rule) SetAttr(key string, value interface{}) {
 		}
 	}
 	if AnnounceRuleChanges {
-		fmt.Printf("rule changed: %s/%s.%s", r.kind, r.Name(), key)
-		if !AnnounceRuleChanges {
-			debug.PrintStack()
-		}
+		log.Printf("rule changed: %s/%s.%s", r.kind, name, key)
+		debug.PrintStack()
 	}
 	r.updated = true
 
