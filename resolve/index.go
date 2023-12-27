@@ -78,6 +78,7 @@ type RuleIndex struct {
 	importMap      map[ImportSpec][]*ruleRecord
 	mrslv          func(r *rule.Rule, pkgRel string) Resolver
 	crossResolvers []CrossResolver
+	didFinish      bool
 }
 
 // ruleRecord contains information about a rule relevant to import indexing.
@@ -133,6 +134,10 @@ func NewRuleIndex(mrslv func(r *rule.Rule, pkgRel string) Resolver, exts ...inte
 //
 // AddRule may only be called before Finish.
 func (ix *RuleIndex) AddRule(c *config.Config, r *rule.Rule, f *rule.File) {
+	if ix.didFinish {
+		log.Panicf(".AddRule must not be called after .Finish")
+	}
+
 	var lang string
 	var imps []ImportSpec
 	if rslv := ix.mrslv(r, f.Pkg); rslv != nil {
@@ -173,6 +178,7 @@ func (ix *RuleIndex) Finish() {
 		ix.collectEmbeds(r)
 	}
 	ix.buildImportIndex()
+	ix.didFinish = true
 }
 
 func (ix *RuleIndex) collectEmbeds(r *ruleRecord) {
