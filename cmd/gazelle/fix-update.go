@@ -254,13 +254,39 @@ type visitRecord struct {
 
 func (v *visitRecord) resolve(c *config.Config, mrslv *metaResolver, ruleIndex *resolve.RuleIndex, rc *repo.RemoteCache, kinds map[string]rule.KindInfo) *resolveResult {
 	for i, r := range v.rules {
+		imports := v.imports
 		from := label.New(c.RepoName, v.pkgRel, r.Name())
 		if rslv := mrslv.Resolver(r, v.pkgRel); rslv != nil {
-			rslv.Resolve(v.c, ruleIndex, rc, r, v.imports[i], from)
+			rslv.Resolve(v.c, ruleIndex, rc, r, imports[i], from)
 		}
 	}
 	merger.MergeFile(v.file, v.empty, v.rules, merger.PostResolve,
 		unionKindInfoMaps(kinds, v.mappedKindInfo))
+	return &resolveResult{}
+}
+
+func resolveRules(
+	c *config.Config,
+	mrslv *metaResolver,
+	ruleIndex *resolve.RuleIndex,
+	rc *repo.RemoteCache,
+	kinds map[string]rule.KindInfo,
+	rules []*rule.Rule,
+	imports []interface{},
+	pkgRel string,
+	file *rule.File,
+	empty []*rule.Rule,
+	mappedKindInfo map[string]rule.KindInfo,
+) *resolveResult {
+	for i, r := range rules {
+		importList := imports[i]
+		from := label.New(c.RepoName, pkgRel, r.Name())
+		if rslv := mrslv.Resolver(r, pkgRel); rslv != nil {
+			rslv.Resolve(c, ruleIndex, rc, r, importList, from)
+		}
+	}
+	merger.MergeFile(file, empty, rules, merger.PostResolve,
+		unionKindInfoMaps(kinds, mappedKindInfo))
 	return &resolveResult{}
 }
 
@@ -422,7 +448,8 @@ func runFixUpdate(wd string, cmd command, args []string) (err error) {
 		for i := 0; i < uc.numIO; i++ {
 			go func(results chan *resolveResult, actions chan *resolveAction) {
 				for action := range actions {
-					results <- action.visit.resolve(action.c, action.mrslv, action.ruleIndex, action.rc, action.kinds)
+					// results <- action.visit.resolve(action.c, action.mrslv, action.ruleIndex, action.rc, action.kinds)
+					results <- resolveRules(action.visit.c, action.mrslv, action.ruleIndex, action.rc, action.kinds, action.visit.rules, action.visit.imports, action.visit.pkgRel, action.visit.file, action.visit.empty, action.visit.mappedKindInfo)
 				}
 			}(results, data)
 		}
