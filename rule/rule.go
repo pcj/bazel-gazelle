@@ -32,6 +32,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 
 	bzl "github.com/bazelbuild/buildtools/build"
 	bt "github.com/bazelbuild/buildtools/tables"
@@ -717,6 +718,7 @@ type Rule struct {
 	args    []bzl.Expr
 	attrs   map[string]*bzl.AssignExpr
 	private map[string]interface{}
+	mutex   *sync.RWMutex // protects (attrs,private)
 }
 
 // NewRule creates a new, empty rule with the given kind and name.
@@ -727,6 +729,7 @@ func NewRule(kind, name string) *Rule {
 		kind:    kind,
 		attrs:   map[string]*bzl.AssignExpr{},
 		private: map[string]interface{}{},
+		mutex:   &sync.RWMutex{},
 	}
 	if name != "" {
 		nameAttr := &bzl.AssignExpr{
@@ -770,6 +773,7 @@ func ruleFromExpr(index int, expr bzl.Expr) *Rule {
 		args:    args,
 		attrs:   attrs,
 		private: map[string]interface{}{},
+		mutex:   &sync.RWMutex{},
 	}
 }
 
@@ -787,6 +791,9 @@ func (r *Rule) Kind() string {
 
 // SetKind changes the kind of rule this is.
 func (r *Rule) SetKind(kind string) {
+	r.mutex.Lock()
+	defer r.mutex.Unlock()
+
 	r.kind = kind
 	r.updated = true
 }
@@ -804,6 +811,9 @@ func (r *Rule) SetName(name string) {
 
 // AttrKeys returns a sorted list of attribute keys used in this rule.
 func (r *Rule) AttrKeys() []string {
+	r.mutex.RLock()
+	defer r.mutex.RUnlock()
+
 	keys := make([]string, 0, len(r.attrs))
 	for k := range r.attrs {
 		keys = append(keys, k)
@@ -820,6 +830,9 @@ func (r *Rule) AttrKeys() []string {
 // Attr returns the value of the named attribute. nil is returned when the
 // attribute is not set.
 func (r *Rule) Attr(key string) bzl.Expr {
+	r.mutex.RLock()
+	defer r.mutex.RUnlock()
+
 	attr, ok := r.attrs[key]
 	if !ok {
 		return nil
@@ -830,6 +843,9 @@ func (r *Rule) Attr(key string) bzl.Expr {
 // AttrString returns the value of the named attribute if it is a scalar string.
 // "" is returned if the attribute is not set or is not a string.
 func (r *Rule) AttrString(key string) string {
+	r.mutex.RLock()
+	defer r.mutex.RUnlock()
+
 	attr, ok := r.attrs[key]
 	if !ok {
 		return ""
@@ -845,6 +861,9 @@ func (r *Rule) AttrString(key string) string {
 // nil is returned if the attribute is not set or is not a list. Non-string
 // values within the list won't be returned.
 func (r *Rule) AttrStrings(key string) []string {
+	r.mutex.RLock()
+	defer r.mutex.RUnlock()
+
 	attr, ok := r.attrs[key]
 	if !ok {
 		return nil
@@ -864,6 +883,9 @@ func (r *Rule) AttrStrings(key string) []string {
 
 // DelAttr removes the named attribute from the rule.
 func (r *Rule) DelAttr(key string) {
+	r.mutex.Lock()
+	defer r.mutex.Unlock()
+
 	delete(r.attrs, key)
 	r.updated = true
 }
@@ -871,6 +893,9 @@ func (r *Rule) DelAttr(key string) {
 // SetAttr adds or replaces the named attribute with an expression produced
 // by ExprFromValue.
 func (r *Rule) SetAttr(key string, value interface{}) {
+	r.mutex.Lock()
+	defer r.mutex.Unlock()
+
 	rhs := ExprFromValue(value)
 	if attr, ok := r.attrs[key]; ok {
 		attr.RHS = rhs
@@ -886,6 +911,9 @@ func (r *Rule) SetAttr(key string, value interface{}) {
 
 // PrivateAttrKeys returns a sorted list of private attribute names.
 func (r *Rule) PrivateAttrKeys() []string {
+	r.mutex.RLock()
+	defer r.mutex.RUnlock()
+
 	keys := make([]string, 0, len(r.private))
 	for k := range r.private {
 		keys = append(keys, k)
@@ -896,6 +924,9 @@ func (r *Rule) PrivateAttrKeys() []string {
 
 // PrivateAttr return the private value associated with a key.
 func (r *Rule) PrivateAttr(key string) interface{} {
+	r.mutex.RLock()
+	defer r.mutex.RUnlock()
+
 	return r.private[key]
 }
 
@@ -903,16 +934,25 @@ func (r *Rule) PrivateAttr(key string) interface{} {
 // is not converted to a build syntax tree and will not be written to a build
 // file.
 func (r *Rule) SetPrivateAttr(key string, value interface{}) {
+	r.mutex.Lock()
+	defer r.mutex.Unlock()
+
 	r.private[key] = value
 }
 
 // Args returns positional arguments passed to a rule.
 func (r *Rule) Args() []bzl.Expr {
+	r.mutex.RLock()
+	defer r.mutex.RUnlock()
+
 	return r.args
 }
 
 // AddArg adds a positional argument to the rule.
 func (r *Rule) AddArg(value bzl.Expr) {
+	r.mutex.Lock()
+	defer r.mutex.Unlock()
+
 	r.args = append(r.args, value)
 }
 
@@ -932,6 +972,9 @@ func (r *Rule) Insert(f *File) {
 // Multiple rules inserted at the same index will be inserted in the order
 // Insert is called. Loads inserted at the same index will be inserted first.
 func (r *Rule) InsertAt(f *File, index int) {
+	r.mutex.RLock()
+	defer r.mutex.RUnlock()
+
 	r.index = index
 	r.inserted = true
 	f.Rules = append(f.Rules, r)
