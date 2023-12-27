@@ -23,6 +23,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 
@@ -50,6 +51,8 @@ type updateConfig struct {
 	patchPath      string
 	patchBuffer    bytes.Buffer
 	print0         bool
+	parallelism    int
+	numIO          int
 }
 
 type emitFunc func(c *config.Config, f *rule.File) error
@@ -69,6 +72,8 @@ func getUpdateConfig(c *config.Config) *updateConfig {
 type updateConfigurer struct {
 	mode           string
 	recursive      bool
+	parallelism    int // number of cores to use for concurrent resolve actions
+	numIO          int // number of concurrent actions
 	knownImports   []string
 	repoConfigPath string
 }
@@ -81,6 +86,8 @@ func (ucr *updateConfigurer) RegisterFlags(fs *flag.FlagSet, cmd string, c *conf
 
 	fs.StringVar(&ucr.mode, "mode", "fix", "print: prints all of the updated BUILD files\n\tfix: rewrites all of the BUILD files in place\n\tdiff: computes the rewrite but then just does a diff")
 	fs.BoolVar(&ucr.recursive, "r", true, "when true, gazelle will update subdirectories recursively")
+	fs.IntVar(&ucr.parallelism, "parallelism", 0, "when non-zero, gazelle will perform resolve phase in parallel using given number of cores")
+	fs.IntVar(&ucr.numIO, "numio", 200, "when -parallelism is non-zero, gazelle will perform resolve phase in parallel using given number of concurrent actions")
 	fs.StringVar(&uc.patchPath, "patch", "", "when set with -mode=diff, gazelle will write to a file instead of stdout")
 	fs.BoolVar(&uc.print0, "print0", false, "when set with -mode=fix, gazelle will print the names of rewritten files separated with \\0 (NULL)")
 	fs.Var(&gzflag.MultiFlag{Values: &ucr.knownImports}, "known_import", "import path for which external resolution is skipped (can specify multiple times)")
@@ -121,6 +128,9 @@ func (ucr *updateConfigurer) CheckFlags(fs *flag.FlagSet, c *config.Config) erro
 		}
 		uc.dirs[i] = dir
 	}
+
+	uc.parallelism = ucr.parallelism
+	uc.numIO = ucr.numIO
 
 	if ucr.recursive && c.IndexLibraries {
 		uc.walkMode = walk.VisitAllUpdateSubdirsMode
@@ -200,6 +210,21 @@ func (ucr *updateConfigurer) KnownDirectives() []string { return nil }
 
 func (ucr *updateConfigurer) Configure(c *config.Config, rel string, f *rule.File) {}
 
+// resolveResult returns information about a resolve action.   Currently empty
+// struct.
+type resolveResult struct {
+}
+
+// resolveAction carries arguments required to perform a resolve
+type resolveAction struct {
+	visit     *visitRecord
+	c         *config.Config
+	mrslv     *metaResolver
+	ruleIndex *resolve.RuleIndex
+	rc        *repo.RemoteCache
+	kinds     map[string]rule.KindInfo
+}
+
 // visitRecord stores information about about a directory visited with
 // packages.Walk.
 type visitRecord struct {
@@ -225,6 +250,18 @@ type visitRecord struct {
 	// mappedKinds are mapped kinds used during this visit.
 	mappedKinds    []config.MappedKind
 	mappedKindInfo map[string]rule.KindInfo
+}
+
+func (v *visitRecord) resolve(c *config.Config, mrslv *metaResolver, ruleIndex *resolve.RuleIndex, rc *repo.RemoteCache, kinds map[string]rule.KindInfo) *resolveResult {
+	for i, r := range v.rules {
+		from := label.New(c.RepoName, v.pkgRel, r.Name())
+		if rslv := mrslv.Resolver(r, v.pkgRel); rslv != nil {
+			rslv.Resolve(v.c, ruleIndex, rc, r, v.imports[i], from)
+		}
+	}
+	merger.MergeFile(v.file, v.empty, v.rules, merger.PostResolve,
+		unionKindInfoMaps(kinds, v.mappedKindInfo))
+	return &resolveResult{}
 }
 
 var genericLoads = []rule.LoadInfo{
@@ -376,15 +413,33 @@ func runFixUpdate(wd string, cmd command, args []string) (err error) {
 			err = cerr
 		}
 	}()
-	for _, v := range visits {
-		for i, r := range v.rules {
-			from := label.New(c.RepoName, v.pkgRel, r.Name())
-			if rslv := mrslv.Resolver(r, v.pkgRel); rslv != nil {
-				rslv.Resolve(v.c, ruleIndex, rc, r, v.imports[i], from)
-			}
+
+	if uc.parallelism > 0 {
+		runtime.GOMAXPROCS(uc.parallelism)
+		results := make(chan *resolveResult, len(visits))
+		data := make(chan *resolveAction)
+
+		for i := 0; i < uc.numIO; i++ {
+			go func(results chan *resolveResult, actions chan *resolveAction) {
+				for action := range actions {
+					results <- action.visit.resolve(action.c, action.mrslv, action.ruleIndex, action.rc, action.kinds)
+				}
+			}(results, data)
 		}
-		merger.MergeFile(v.file, v.empty, v.rules, merger.PostResolve,
-			unionKindInfoMaps(kinds, v.mappedKindInfo))
+
+		for _, visit := range visits {
+			data <- &resolveAction{&visit, c, mrslv, ruleIndex, rc, kinds}
+		}
+
+		close(data)
+
+		for i := 0; i < len(visits); i++ {
+			<-results
+		}
+	} else {
+		for _, v := range visits {
+			v.resolve(c, mrslv, ruleIndex, rc, kinds)
+		}
 	}
 
 	// Emit merged files.
