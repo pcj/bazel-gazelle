@@ -441,7 +441,6 @@ func runFixUpdate(wd string, cmd command, args []string) (err error) {
 	}()
 
 	if uc.parallelism > 0 {
-		rule.AnnounceRuleChanges = true
 		runtime.GOMAXPROCS(uc.parallelism)
 		results := make(chan *resolveResult, len(visits))
 		data := make(chan *resolveAction)

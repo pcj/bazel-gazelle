@@ -28,10 +28,8 @@ package rule
 import (
 	"fmt"
 	"io/ioutil"
-	"log"
 	"os"
 	"path/filepath"
-	"runtime/debug"
 	"sort"
 	"strings"
 	"sync"
@@ -39,8 +37,6 @@ import (
 	bzl "github.com/bazelbuild/buildtools/build"
 	bt "github.com/bazelbuild/buildtools/tables"
 )
-
-var AnnounceRuleChanges bool
 
 // File provides editing functionality for a build file. You can create a
 // new file with EmptyFile or load an existing file with LoadFile. After
@@ -897,8 +893,6 @@ func (r *Rule) DelAttr(key string) {
 // SetAttr adds or replaces the named attribute with an expression produced
 // by ExprFromValue.
 func (r *Rule) SetAttr(key string, value interface{}) {
-	name := r.Name()
-
 	r.mutex.Lock()
 
 	rhs := ExprFromValue(value)
@@ -910,10 +904,6 @@ func (r *Rule) SetAttr(key string, value interface{}) {
 			RHS: rhs,
 			Op:  "=",
 		}
-	}
-	if AnnounceRuleChanges {
-		log.Printf("rule changed: %s/%s.%s", r.kind, name, key)
-		debug.PrintStack()
 	}
 	r.updated = true
 
